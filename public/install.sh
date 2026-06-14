@@ -581,7 +581,7 @@ TX_PREV=${current_tx}
 RX_PERIOD=${rx_correction_bytes}
 TX_PERIOD=${tx_correction_bytes}
 LAST_CHECK=${now_ts}
-PERIOD_START=${now_ts}
+PERIOD_START=0
 EOF
             fi
         fi
