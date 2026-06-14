@@ -706,6 +706,8 @@ install_probe() {
     CM_NODE=""
     BD_NODE=""
     RESET_DAY=""
+    RX_CORRECTION=""
+    TX_CORRECTION=""
 
     for arg in "$@"; do
         case "$arg" in
@@ -719,6 +721,8 @@ install_probe() {
             -cm=*) CM_NODE="${arg#-cm=}" ;;
             -bd=*) BD_NODE="${arg#-bd=}" ;;
             -reset_day=*) RESET_DAY="${arg#-reset_day=}" ;;
+            -rx_correction=*) RX_CORRECTION="${arg#-rx_correction=}" ;;
+            -tx_correction=*) TX_CORRECTION="${arg#-tx_correction=}" ;;
         esac
     done
 
@@ -740,11 +744,14 @@ install_probe() {
         echo "  -cm=HOST       自定义CM测试节点"
         echo "  -bd=HOST       自定义BD测试节点"
         echo "  -reset_day=N   流量重置日(1-31)，默认1"
+        echo "  -rx_correction=N  下行流量校正(GB)，直接修改当月下行数据"
+        echo "  -tx_correction=N  上行流量校正(GB)，直接修改当月上行数据"
         echo ""
         echo "示例:"
         echo "  sh $0 install -id=server123 -secret=abc123 -url=https://worker.example.com"
         echo "  sh $0 install -id=server123 -secret=abc123 -url=https://worker.example.com -interval=30 -ping=tcp"
         echo "  sh $0 install -id=server123 -secret=abc123 -url=https://worker.example.com -reset_day=15"
+        echo "  sh $0 install -id=server123 -secret=abc123 -url=https://worker.example.com -rx_correction=10 -tx_correction=5"
         exit 1
     fi
 
@@ -757,6 +764,57 @@ install_probe() {
     detect_os
     install_deps
     stop_old_service
+    if [ -n "${RX_CORRECTION}" ] || [ -n "${TX_CORRECTION}" ]; then
+        step "应用流量校正..."
+        local traffic_data_dir="/var/lib/cf-probe"
+        local traffic_data_file="${traffic_data_dir}/traffic.dat"
+        
+        if [ -f "${traffic_data_file}" ]; then
+            local current_rx_period=0 current_tx_period=0
+            while IFS='=' read -r key value; do
+                case "$key" in
+                    RX_PERIOD) current_rx_period="${value}" ;;
+                    TX_PERIOD) current_tx_period="${value}" ;;
+                esac
+            done < "${traffic_data_file}"
+            
+            if [ -n "${RX_CORRECTION}" ] && echo "${RX_CORRECTION}" | awk '{exit($1 == 0)}' 2>/dev/null; then
+                local rx_correction_bytes=$(echo "${RX_CORRECTION}" | awk '{printf "%.0f", $1 * 1024 * 1024 * 1024}')
+                current_rx_period="${rx_correction_bytes}"
+                info "下行流量校正: ${RX_CORRECTION}GB"
+            fi
+            
+            if [ -n "${TX_CORRECTION}" ] && echo "${TX_CORRECTION}" | awk '{exit($1 == 0)}' 2>/dev/null; then
+                local tx_correction_bytes=$(echo "${TX_CORRECTION}" | awk '{printf "%.0f", $1 * 1024 * 1024 * 1024}')
+                current_tx_period="${tx_correction_bytes}"
+                info "上行流量校正: ${TX_CORRECTION}GB"
+            fi
+            
+            sed -i "s/RX_PERIOD=.*/RX_PERIOD=${current_rx_period}/" "${traffic_data_file}"
+            sed -i "s/TX_PERIOD=.*/TX_PERIOD=${current_tx_period}/" "${traffic_data_file}"
+            success "流量校正完成"
+        else
+            if [ -n "${RX_CORRECTION}" ] || [ -n "${TX_CORRECTION}" ]; then
+                mkdir -p "${traffic_data_dir}" 2>/dev/null || true
+                local now_ts=$(date '+%s')
+                local rx_correction_bytes=0 tx_correction_bytes=0
+                [ -n "${RX_CORRECTION}" ] && echo "${RX_CORRECTION}" | awk '{exit($1 == 0)}' 2>/dev/null && rx_correction_bytes=$(echo "${RX_CORRECTION}" | awk '{printf "%.0f", $1 * 1024 * 1024 * 1024}')
+                [ -n "${TX_CORRECTION}" ] && echo "${TX_CORRECTION}" | awk '{exit($1 == 0)}' 2>/dev/null && tx_correction_bytes=$(echo "${TX_CORRECTION}" | awk '{printf "%.0f", $1 * 1024 * 1024 * 1024}')
+                echo "${RX_CORRECTION}" | awk '{exit($1 == 0)}' 2>/dev/null && info "下行流量校正: ${RX_CORRECTION}GB (新建)"
+                echo "${TX_CORRECTION}" | awk '{exit($1 == 0)}' 2>/dev/null && info "上行流量校正: ${TX_CORRECTION}GB (新建)"
+                cat > "${traffic_data_file}" << EOF
+RX_PREV=0
+TX_PREV=0
+RX_PERIOD=${rx_correction_bytes}
+TX_PERIOD=${tx_correction_bytes}
+LAST_CHECK=${now_ts}
+PERIOD_START=${now_ts}
+EOF
+                success "流量数据文件创建完成"
+            fi
+        fi
+    fi
+
     create_script "$REPORT_INTERVAL" "$PING_TYPE" "$CT_NODE" "$CU_NODE" "$CM_NODE" "$BD_NODE" "$RESET_DAY"
     create_service "$CT_NODE" "$CU_NODE" "$CM_NODE" "$BD_NODE"
     start_service
@@ -771,6 +829,8 @@ install_probe() {
     printf  '    ● Worker URL  : %s\n' "${WORKER_URL}"
     printf  '    ● 上报间隔    : %s秒\n' "${REPORT_INTERVAL}"
     printf  '    ● 探测类型    : %s\n' "${PING_TYPE}"
+    [ -n "${RX_CORRECTION}" ] && printf  '    ● 下行校正    : %sGB\n' "${RX_CORRECTION}"
+    [ -n "${TX_CORRECTION}" ] && printf  '    ● 上行校正    : %sGB\n' "${TX_CORRECTION}"
     printf  '    ● 流量重置日  : %s号\n' "${RESET_DAY}"
     [ -n "${CT_NODE}" ] && printf  '    ● CT节点      : %s\n' "${CT_NODE}"
     [ -n "${CU_NODE}" ] && printf  '    ● CU节点      : %s\n' "${CU_NODE}"
