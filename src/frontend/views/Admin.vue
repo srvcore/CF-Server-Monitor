@@ -548,6 +548,7 @@
             <select v-model="targetOs" class="form-select">
               <option value="linux">Linux (Ubuntu/Debian/CentOS)</option>
               <option value="alpine">Alpine Linux</option>
+              <option value="openwrt">OpenWrt / LEDE / ImmortalWrt</option>
               <option value="windows">Windows</option>
             </select>
           </div>
@@ -1088,8 +1089,10 @@ const getCustomInstallCommand = () => {
   if (targetOs.value === 'windows') {
     return `${HOST}/cf-server-monitor.pyw`
   }
-  const shell = targetOs.value === 'alpine' ? 'sh' : 'bash'
-  const script = targetOs.value === 'alpine' ? 'install-alpine.sh' : 'install.sh'
+  const shell = targetOs.value === 'alpine' || targetOs.value === 'openwrt' ? 'sh' : 'bash'
+  const script = targetOs.value === 'alpine' ? 'install-alpine.sh'
+    : targetOs.value === 'openwrt' ? 'install-openwrt.sh'
+    : 'install.sh'
   let cmd = `curl -sL ${HOST}/${script} | ${shell} -s install -id=${copyServerId.value} -secret='${apiSecret.value}' -url=${HOST}/update -interval=${reportInterval.value} -ping=${pingMode.value} -reset_day=${resetDay.value || 1}`
   if (customCt.value) cmd += ` -ct=${customCt.value}`
   if (customCu.value) cmd += ` -cu=${customCu.value}`
