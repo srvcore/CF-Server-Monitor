@@ -568,13 +568,16 @@ PROBE_EOF
                 mkdir -p "${traffic_data_dir}" 2>/dev/null || true
                 local now_ts=$(date '+%s')
                 local rx_correction_bytes=0 tx_correction_bytes=0
+                # 获取当前网卡总流量，用于设置 RX_PREV/TX_PREV，避免 delta 计算引入历史流量
+                local current_rx=$(awk 'NR>2{rx+=$2}END{printf "%.0f", rx}' /proc/net/dev 2>/dev/null || echo 0)
+                local current_tx=$(awk 'NR>2{tx+=$10}END{printf "%.0f", tx}' /proc/net/dev 2>/dev/null || echo 0)
                 [ -n "${rx_correction}" ] && echo "${rx_correction}" | awk '{exit($1 == 0)}' 2>/dev/null && rx_correction_bytes=$(echo "${rx_correction}" | awk '{printf "%.0f", $1 * 1024 * 1024 * 1024}')
                 [ -n "${tx_correction}" ] && echo "${tx_correction}" | awk '{exit($1 == 0)}' 2>/dev/null && tx_correction_bytes=$(echo "${tx_correction}" | awk '{printf "%.0f", $1 * 1024 * 1024 * 1024}')
                 echo "${rx_correction}" | awk '{exit($1 == 0)}' 2>/dev/null && info "下行流量校正: ${rx_correction}GB (新建)"
                 echo "${tx_correction}" | awk '{exit($1 == 0)}' 2>/dev/null && info "上行流量校正: ${tx_correction}GB (新建)"
                 cat > "${traffic_data_file}" << EOF
-RX_PREV=0
-TX_PREV=0
+RX_PREV=${current_rx}
+TX_PREV=${current_tx}
 RX_PERIOD=${rx_correction_bytes}
 TX_PERIOD=${tx_correction_bytes}
 LAST_CHECK=${now_ts}
